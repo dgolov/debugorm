@@ -36,7 +36,7 @@ dev = [
 Homepage = "https://github.com/dgolov/debugorm"
 Repository = "https://github.com/dgolov/debugorm"
 Issues = "https://github.com/dgolov/debugorm/issues"
-Changelog = "https://github.com/dgolov/debugorm/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/dgolov/debugorm/blob/master/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
