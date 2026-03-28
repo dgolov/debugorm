@@ -31,7 +31,7 @@ class DryRunPlugin(Plugin):
         estimated = self._estimate(compiled, ctx)
 
         print(f"\n╔{sep}╗")
-        print(f"║  [DryRunPlugin]  ⚠  NOT EXECUTED")
+        print("║  [DryRunPlugin]  ⚠  NOT EXECUTED")
         print(f"╠{sep}╣")
         print(f"║  Type  : {compiled.query.query_type}")
         print(f"║  SQL   : {compiled.sql}")

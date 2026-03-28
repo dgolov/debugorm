@@ -4,7 +4,6 @@ from typing import Optional, TYPE_CHECKING
 from .base import Plugin
 
 if TYPE_CHECKING:
-    from ..core.query import Query
     from ..core.compiler import CompiledQuery
     from ..core.pipeline import PipelineContext, QueryResult
 
@@ -32,13 +31,13 @@ class ExplainPlugin(Plugin):
         compiled = self._compiled
 
         print(f"\n╔{sep}╗")
-        print(f"║  [ExplainPlugin]")
+        print("║  [ExplainPlugin]")
         print(f"╠{sep}╣")
         print(f"║  SQL  : {compiled.sql}")
         if compiled.params:
             print(f"║  Params: {compiled.params}")
         print(f"╠{sep}╣")
-        print(f"║  QUERY PLAN")
+        print("║  QUERY PLAN")
 
         try:
             rows = ctx.connection.fetchall(

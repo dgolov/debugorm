@@ -62,7 +62,7 @@ class PrettyPrintPlugin(Plugin):
         sep = "─" * 60
 
         print(f"\n╔{sep}╗")
-        print(f"║  [PrettyPrintPlugin]  Formatted SQL")
+        print("║  [PrettyPrintPlugin]  Formatted SQL")
         print(f"╠{sep}╣")
         for line in _format_sql(compiled.sql).splitlines():
             print(f"║  {line}")

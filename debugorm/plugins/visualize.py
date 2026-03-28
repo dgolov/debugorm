@@ -43,7 +43,7 @@ class VisualizePlugin(Plugin):
             lines.append(f"fields: {', '.join(query.select_fields)}")
 
         print(f"\n╔{sep}╗")
-        print(f"║  [VisualizePlugin]  Query Structure")
+        print("║  [VisualizePlugin]  Query Structure")
         print(f"╠{sep}╣")
         print(f"║  {query.model.__name__} ({query.query_type})")
 
