@@ -1,11 +1,12 @@
 from __future__ import annotations
-from typing import Any, Iterator, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterator, List, Optional, TYPE_CHECKING
 
 from .query import Query, OrderByClause
 from .pipeline import QueryPipeline
 
 if TYPE_CHECKING:
     from .model import Model
+    from .aggregates import Aggregate
     from ..plugins.base import Plugin
 
 
@@ -36,13 +37,47 @@ class QuerySet:
         self._model = model
         self._pipeline = pipeline
         self._query = query if query is not None else Query(model)
+        self._return_mode: str = "model"
+
+    def _clone(self, query: Optional[Query] = None, **overrides: Any) -> "QuerySet":
+        """Return a shallow copy with optionally overridden attributes."""
+        qs = QuerySet(self._model, self._pipeline, query)
+        qs._return_mode = self._return_mode
+        for key, val in overrides.items():
+            setattr(qs, key, val)
+        return qs
 
     def filter(self, **kwargs: Any) -> "QuerySet":
-        """Append WHERE conditions.  Multiple calls are AND-ed together."""
+        """Append AND WHERE conditions.  Multiple calls are AND-ed together."""
         new_query = self._query.copy()
         for lookup, value in kwargs.items():
             new_query.add_filter(lookup, value)
-        return QuerySet(self._model, self._pipeline, new_query)
+        return self._clone(new_query)
+
+    def or_filter(self, **kwargs: Any) -> "QuerySet":
+        """
+        Add a group of conditions OR-joined to the existing WHERE clause::
+
+            User.objects.filter(age__gt=18).or_filter(name="Admin")
+            # WHERE (age > 18) OR (name = 'Admin')
+
+            User.objects.filter(active=True).or_filter(age__gt=18, role="admin")
+            # WHERE (active = 1) OR (age > 18 AND role = 'admin')
+        """
+        new_query = self._query.copy()
+        new_query.add_or_group(kwargs)
+        return self._clone(new_query)
+
+    def exclude(self, **kwargs: Any) -> "QuerySet":
+        """
+        Exclude rows that match the given conditions::
+
+            User.objects.exclude(age__lt=18)
+            # WHERE NOT (age < 18)
+        """
+        new_query = self._query.copy()
+        new_query.add_exclude_group(kwargs)
+        return self._clone(new_query)
 
     def order_by(self, *fields: str) -> "QuerySet":
         """
@@ -54,24 +89,62 @@ class QuerySet:
         for f in fields:
             descending = f.startswith("-")
             new_query.order_by_clauses.append(OrderByClause(f.lstrip("-"), descending))
-        return QuerySet(self._model, self._pipeline, new_query)
+        return self._clone(new_query)
 
     def limit(self, n: int) -> "QuerySet":
         new_query = self._query.copy()
         new_query.limit_value = n
-        return QuerySet(self._model, self._pipeline, new_query)
+        return self._clone(new_query)
 
     def offset(self, n: int) -> "QuerySet":
         new_query = self._query.copy()
         new_query.offset_value = n
-        return QuerySet(self._model, self._pipeline, new_query)
+        return self._clone(new_query)
 
-    def all(self) -> List["Model"]:
-        """Execute the query and return a list of model instances."""
+    def values(self, *fields: str) -> "QuerySet":
+        """
+        Return dicts instead of model instances.
+        An optional field list restricts which columns are selected::
+
+            User.objects.filter(age__gt=18).values("id", "name")
+            # [{"id": 1, "name": "Alice"}, ...]
+        """
+        new_query = self._query.copy()
+        if fields:
+            new_query.select_fields = list(fields)
+        return self._clone(new_query, _return_mode="dict")
+
+    def values_list(self, *fields: str, flat: bool = False) -> "QuerySet":
+        """
+        Return tuples instead of model instances::
+
+            User.objects.values_list("id", "name")
+            # [(1, "Alice"), (2, "Bob"), ...]
+
+            User.objects.values_list("name", flat=True)
+            # ["Alice", "Bob", ...]
+        """
+        if flat and len(fields) != 1:
+            raise ValueError("values_list(flat=True) requires exactly one field")
+        new_query = self._query.copy()
+        if fields:
+            new_query.select_fields = list(fields)
+        return self._clone(new_query, _return_mode="flat" if flat else "tuple")
+
+    def all(self) -> List[Any]:
+        """Execute the query and return results in the current return mode."""
         result = self._pipeline.run(self._query)
+
+        if self._return_mode == "dict":
+            return list(result.rows)
+        elif self._return_mode == "tuple":
+            return [tuple(row.values()) for row in result.rows]
+        elif self._return_mode == "flat":
+            return [next(iter(row.values())) for row in result.rows]
+
         return [self._model._from_row(row) for row in result.rows]
 
-    def get(self, **kwargs: Any) -> "Model":
+    def get(self, **kwargs: Any) -> Any:
         """Return exactly one object; raise if zero or multiple match."""
         qs = self.filter(**kwargs) if kwargs else self
         results = qs.all()
@@ -85,7 +158,7 @@ class QuerySet:
             )
         return results[0]
 
-    def first(self) -> Optional["Model"]:
+    def first(self) -> Optional[Any]:
         results = self.limit(1).all()
         return results[0] if results else None
 
@@ -100,6 +173,29 @@ class QuerySet:
 
     def exists(self) -> bool:
         return self.count() > 0
+
+    def aggregate(self, **kwargs: "Aggregate") -> Dict[str, Any]:
+        """
+        Compute aggregate values over the current queryset::
+
+            User.objects.filter(age__gt=18).aggregate(
+                avg_age=Avg("age"),
+                max_age=Max("age"),
+                total=Count(),
+            )
+            # {"avg_age": 25.7, "max_age": 30, "total": 3}
+        """
+        agg_query = self._query.copy()
+        agg_query.select_fields = []
+        for alias, agg in kwargs.items():
+            agg.alias = alias
+            agg_query.select_fields.append(agg.as_sql_fragment())
+        agg_query.limit_value = None
+        agg_query.offset_value = None
+        agg_query.order_by_clauses = []
+
+        result = self._pipeline.run(agg_query)
+        return dict(result.rows[0]) if result.rows else {k: None for k in kwargs}
 
     def debug(
         self,
@@ -132,7 +228,10 @@ class QuerySet:
             from ..plugins.dry_run import DryRunPlugin
             extra.append(DryRunPlugin())
 
-        return QuerySet(self._model, self._pipeline.with_plugins(extra), self._query.copy())
+        return self._clone(
+            self._query.copy(),
+            _pipeline=self._pipeline.with_plugins(extra),
+        )
 
     def diff(self, other: "QuerySet") -> str:
         """
@@ -146,7 +245,7 @@ class QuerySet:
         """
         return self._query.diff(other._query)
 
-    def __iter__(self) -> Iterator["Model"]:
+    def __iter__(self) -> Iterator[Any]:
         return iter(self.all())
 
     def __len__(self) -> int:
@@ -183,22 +282,37 @@ class Manager:
     def filter(self, **kwargs: Any) -> QuerySet:
         return self.get_queryset().filter(**kwargs)
 
-    def all(self) -> List["Model"]:
+    def or_filter(self, **kwargs: Any) -> QuerySet:
+        return self.get_queryset().or_filter(**kwargs)
+
+    def exclude(self, **kwargs: Any) -> QuerySet:
+        return self.get_queryset().exclude(**kwargs)
+
+    def all(self) -> List[Any]:
         return self.get_queryset().all()
 
-    def get(self, **kwargs: Any) -> "Model":
+    def get(self, **kwargs: Any) -> Any:
         return self.get_queryset().get(**kwargs)
 
     def order_by(self, *fields: str) -> QuerySet:
         return self.get_queryset().order_by(*fields)
 
-    def first(self) -> Optional["Model"]:
+    def first(self) -> Optional[Any]:
         return self.get_queryset().first()
 
     def count(self) -> int:
         return self.get_queryset().count()
 
-    def create(self, **kwargs: Any) -> "Model":
+    def aggregate(self, **kwargs: "Aggregate") -> Dict[str, Any]:
+        return self.get_queryset().aggregate(**kwargs)
+
+    def values(self, *fields: str) -> QuerySet:
+        return self.get_queryset().values(*fields)
+
+    def values_list(self, *fields: str, flat: bool = False) -> QuerySet:
+        return self.get_queryset().values_list(*fields, flat=flat)
+
+    def create(self, **kwargs: Any) -> Any:
         instance = self._model(**kwargs)
         instance.save()
         return instance

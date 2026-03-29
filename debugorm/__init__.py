@@ -36,6 +36,7 @@ from .core.compiler import SQLCompiler, CompiledQuery
 from .core.manager import Manager, QuerySet
 from .db.connection import configure, get_connection, set_connection, Connection
 from .fields import Field, IntegerField, StringField
+from .core.aggregates import Aggregate, Avg, Max, Min, Sum, Count
 from .plugins import (
     Plugin,
     ExplainPlugin,
@@ -63,6 +64,12 @@ __all__ = [
     "Field",
     "IntegerField",
     "StringField",
+    "Aggregate",
+    "Avg",
+    "Max",
+    "Min",
+    "Sum",
+    "Count",
     "Plugin",
     "ExplainPlugin",
     "DryRunPlugin",
