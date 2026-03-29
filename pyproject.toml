@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "debugorm"
-version = "0.1.0"
+version = "0.1.1"
 description = "A minimal, plugin-driven ORM for understanding and debugging SQL"
 readme = "README.md"
 license = { text = "MIT" }
