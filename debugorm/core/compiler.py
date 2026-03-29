@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Tuple
 
-from .query import Query
+from .query import FilterCondition, Query
 
 
 @dataclass
@@ -61,7 +61,6 @@ class SQLCompiler:
             sql += " LIMIT ?"
             params.append(query.limit_value)
         elif query.offset_value is not None:
-            # SQLite requires LIMIT before OFFSET; -1 means no upper bound
             sql += " LIMIT -1"
 
         if query.offset_value is not None:
@@ -118,13 +117,58 @@ class SQLCompiler:
         return CompiledQuery(sql=sql, params=tuple(params), query=query)
 
     def _compile_where(self, query: Query) -> Tuple[str, List[Any]]:
-        if not query.conditions:
+        """
+        Build a WHERE clause that supports:
+        - AND conditions (``filter``)
+        - OR groups     (``or_filter``)
+        - NOT conditions (``exclude``)
+
+        Generated form::
+
+            (cond1 AND cond2) OR (or_group1) OR (or_group2) AND NOT (excl1 AND excl2)
+        """
+        has_main = bool(query.conditions)
+        has_or = bool(query.or_groups)
+        has_excl = bool(query.exclude_groups)
+
+        if not has_main and not has_or and not has_excl:
             return "", []
 
+        params: List[Any] = []
+        top_parts: List[str] = []
+
+        if has_main or has_or:
+            or_clauses: List[str] = []
+
+            if has_main:
+                sql, p = self._build_and_conditions(query.conditions)
+                or_clauses.append(sql)
+                params.extend(p)
+
+            for group in query.or_groups:
+                sql, p = self._build_and_conditions(group)
+                or_clauses.append(sql)
+                params.extend(p)
+
+            if len(or_clauses) == 1:
+                top_parts.append(or_clauses[0])
+            else:
+                top_parts.append(" OR ".join(f"({c})" for c in or_clauses))
+
+        for group in query.exclude_groups:
+            sql, p = self._build_and_conditions(group)
+            top_parts.append(f"NOT ({sql})")
+            params.extend(p)
+
+        return " AND ".join(top_parts), params
+
+    def _build_and_conditions(
+        self, conditions: List[FilterCondition]
+    ) -> Tuple[str, List[Any]]:
         parts: List[str] = []
         params: List[Any] = []
 
-        for cond in query.conditions:
+        for cond in conditions:
             if cond.operator == "IN":
                 placeholders = ", ".join(["?"] * len(cond.value))
                 parts.append(f"{cond.field} IN ({placeholders})")

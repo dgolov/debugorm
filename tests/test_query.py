@@ -1,5 +1,5 @@
 import pytest
-from debugorm import Model
+from debugorm import configure, Model
 from debugorm.fields import IntegerField, StringField
 from debugorm.core.query import Query, FilterCondition, OrderByClause
 
@@ -10,6 +10,11 @@ class DummyModel(Model):
 
     class Meta:
         table_name = "dummy"
+
+
+@pytest.fixture(autouse=True)
+def db():
+    configure(":memory:")
 
 
 class TestFilterCondition:
@@ -56,12 +61,29 @@ class TestQuery:
         with pytest.raises(ValueError, match="Unknown lookup operator"):
             self.q.add_filter("age__wtf", 1)
 
+    def test_add_exclude_group(self):
+        self.q.add_exclude_group({"age__lt": 18})
+        assert len(self.q.exclude_groups) == 1
+        assert self.q.exclude_groups[0][0].operator == "<"
+
+    def test_add_or_group(self):
+        self.q.add_or_group({"age__gt": 18, "age__lt": 30})
+        assert len(self.q.or_groups) == 1
+        assert len(self.q.or_groups[0]) == 2
+
     def test_copy_is_independent(self):
         self.q.add_filter("age__gt", 18)
         copy = self.q.copy()
         copy.add_filter("age__lt", 99)
         assert len(self.q.conditions) == 1
         assert len(copy.conditions) == 2
+
+    def test_copy_preserves_or_groups(self):
+        self.q.add_or_group({"age__gt": 18})
+        copy = self.q.copy()
+        copy.add_or_group({"age__lt": 30})
+        assert len(self.q.or_groups) == 1
+        assert len(copy.or_groups) == 2
 
 
 class TestQueryDiff:
@@ -104,3 +126,19 @@ class TestQueryDiff:
         diff = self.q1.diff(self.q2)
         assert "- ORDER BY age DESC" in diff
         assert "+ ORDER BY age ASC" in diff
+
+    def test_or_group_diff(self):
+        self.q1.add_or_group({"age__gt": 18})
+        self.q2.add_or_group({"age__gt": 21})
+        diff = self.q1.diff(self.q2)
+        assert "OR:" in diff
+        assert "18" in diff
+        assert "21" in diff
+
+    def test_exclude_diff(self):
+        self.q1.add_exclude_group({"age__lt": 18})
+        self.q2.add_exclude_group({"age__lt": 21})
+        diff = self.q1.diff(self.q2)
+        assert "NOT:" in diff
+        assert "18" in diff
+        assert "21" in diff

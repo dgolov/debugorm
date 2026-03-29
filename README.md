@@ -75,6 +75,41 @@ User.objects.filter(age__gte=18).order_by("-age").all()
 User.objects.get(name="Bob")
 User.objects.filter(age__gt=20).count()
 User.objects.order_by("-age").first()
+
+# OR conditions
+User.objects.filter(name="Alice").or_filter(name="Bob").all()
+# WHERE (name = 'Alice') OR (name = 'Bob')
+
+# Multiple conditions per OR group
+User.objects.filter(age__gt=28).or_filter(age__lt=18, name="Bob").all()
+# WHERE (age > 28) OR (age < 18 AND name = 'Bob')
+
+# Exclude
+User.objects.exclude(age__lt=18).all()
+# WHERE NOT (age < 18)
+
+User.objects.exclude(age__lt=18).exclude(name="Admin").all()
+# WHERE NOT (age < 18) AND NOT (name = 'Admin')
+
+# Aggregations
+from debugorm import Avg, Max, Min, Sum, Count
+
+User.objects.aggregate(avg_age=Avg("age"), max_age=Max("age"), total=Count())
+# {"avg_age": 25.0, "max_age": 30, "total": 4}
+
+User.objects.filter(age__gte=18).aggregate(avg_age=Avg("age"))
+# {"avg_age": 25.7}
+
+# values() — return dicts
+User.objects.filter(age__gt=18).values("id", "name").all()
+# [{"id": 1, "name": "Alice"}, ...]
+
+# values_list() — return tuples
+User.objects.values_list("id", "name").all()
+# [(1, "Alice"), (2, "Bob"), ...]
+
+User.objects.values_list("name", flat=True).all()
+# ["Alice", "Bob", ...]
 ```
 
 ### Supported lookup operators
