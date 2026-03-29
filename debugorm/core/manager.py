@@ -5,7 +5,6 @@ from .query import Query, OrderByClause
 from .pipeline import QueryPipeline
 
 if TYPE_CHECKING:
-    from .model import Model
     from .aggregates import Aggregate
     from ..plugins.base import Plugin
 
