@@ -7,6 +7,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-03-29
+
+### Added
+- `Aggregate` base class and built-in functions: `Count`, `Sum`, `Avg`, `Min`, `Max`
+- `QuerySet.aggregate(**kwargs)` — compute aggregate values over the current queryset
+- `QuerySet.values(*fields)` — return dicts instead of model instances
+- `QuerySet.values_list(*fields, flat=False)` — return tuples or flat lists
+- `QuerySet.or_filter(**kwargs)` — add OR-joined condition group to WHERE clause
+- `QuerySet.exclude(**kwargs)` — exclude rows matching the given conditions
+
 ## [0.1.0] — 2026-03-28
 
 ### Added
