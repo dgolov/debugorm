@@ -1,7 +1,7 @@
 import pytest
 from debugorm import configure, Model
 from debugorm.fields import IntegerField, StringField
-from debugorm.core.query import Query
+from debugorm.core.query import Query, OrderByClause
 from debugorm.core.compiler import SQLCompiler
 
 
@@ -57,7 +57,6 @@ class TestSelectCompilation:
         assert compiled.params == ()
 
     def test_select_order_by(self):
-        from debugorm.core.query import OrderByClause
         q = Query(Article)
         q.order_by_clauses = [OrderByClause("views", descending=True)]
         compiled = SQLCompiler().compile(q)
@@ -72,11 +71,83 @@ class TestSelectCompilation:
         assert "OFFSET ?" in compiled.sql
         assert compiled.params == (10, 20)
 
+    def test_offset_without_limit_adds_limit_minus_one(self):
+        q = Query(Article)
+        q.offset_value = 5
+        compiled = SQLCompiler().compile(q)
+        assert "LIMIT -1" in compiled.sql
+        assert "OFFSET ?" in compiled.sql
+
     def test_select_custom_fields(self):
         q = Query(Article)
         q.select_fields = ["id", "title"]
         compiled = SQLCompiler().compile(q)
         assert compiled.sql.startswith("SELECT id, title FROM")
+
+
+class TestOrFilterCompilation:
+    def test_simple_or(self):
+        q = Query(Article)
+        q.add_filter("views__gt", 100)
+        q.add_or_group({"title__like": "Py%"})
+        compiled = SQLCompiler().compile(q)
+        assert "OR" in compiled.sql
+        assert "(views > ?)" in compiled.sql
+        assert "(title LIKE ?)" in compiled.sql
+
+    def test_multiple_or_groups(self):
+        q = Query(Article)
+        q.add_filter("views__gt", 100)
+        q.add_or_group({"title__like": "Py%"})
+        q.add_or_group({"title__like": "Ru%"})
+        compiled = SQLCompiler().compile(q)
+        assert compiled.sql.count("OR") == 2
+
+    def test_or_without_main_conditions(self):
+        q = Query(Article)
+        q.add_or_group({"views__gt": 100})
+        q.add_or_group({"views__lt": 10})
+        compiled = SQLCompiler().compile(q)
+        assert "OR" in compiled.sql
+        assert "WHERE" in compiled.sql
+
+    def test_or_group_with_multiple_conditions(self):
+        q = Query(Article)
+        q.add_or_group({"views__gt": 100, "title__like": "Py%"})
+        compiled = SQLCompiler().compile(q)
+        assert "AND" in compiled.sql
+
+
+class TestExcludeCompilation:
+    def test_simple_exclude(self):
+        q = Query(Article)
+        q.add_exclude_group({"views__lt": 100})
+        compiled = SQLCompiler().compile(q)
+        assert "NOT (views < ?)" in compiled.sql
+        assert compiled.params == (100,)
+
+    def test_exclude_with_filter(self):
+        q = Query(Article)
+        q.add_filter("title__like", "Py%")
+        q.add_exclude_group({"views__lt": 100})
+        compiled = SQLCompiler().compile(q)
+        assert "title LIKE ?" in compiled.sql
+        assert "NOT (views < ?)" in compiled.sql
+        assert "AND" in compiled.sql
+
+    def test_exclude_multiple_calls(self):
+        q = Query(Article)
+        q.add_exclude_group({"views__lt": 10})
+        q.add_exclude_group({"views__gt": 1000})
+        compiled = SQLCompiler().compile(q)
+        assert compiled.sql.count("NOT (") == 2
+
+    def test_exclude_single_call_multiple_conditions(self):
+        q = Query(Article)
+        q.add_exclude_group({"views__lt": 10, "views__gt": 1000})
+        compiled = SQLCompiler().compile(q)
+        assert compiled.sql.count("NOT (") == 1
+        assert "AND" in compiled.sql
 
 
 class TestInsertCompilation:
